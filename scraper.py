@@ -6,6 +6,9 @@ import json
 import os
 from pathlib import Path
 
+# Create logs directory if it doesn't exist
+os.makedirs('logs', exist_ok=True)
+
 class CloudArchitectureScraper:
     def __init__(self, sources_file: str = "sources.json"):
         self.sources_file = sources_file
@@ -87,7 +90,7 @@ class CloudArchitectureScraper:
 
 if __name__ == "__main__":
     # Configure logger
-    logger.add("scraper.log", rotation="1 day", retention="7 days")
+    logger.add("logs/scraper.log", rotation="1 day", retention="7 days")
     
     # Run the scraper
     scraper = CloudArchitectureScraper()

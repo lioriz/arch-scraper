@@ -1,0 +1,10 @@
+version: '3.8'
+
+services:
+  scraper:
+    build: .
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - TZ=UTC
+    restart: unless-stopped 
