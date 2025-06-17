@@ -8,13 +8,12 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Playwright and its dependencies
+RUN playwright install-deps && \
+    playwright install chromium
+
 # Copy the rest of the application
 COPY . .
-
-# Create a non-root user
-RUN useradd -m scraper
-RUN chown -R scraper:scraper /app
-USER scraper
 
 # Command to run the scraper
 CMD ["python", "scraper.py"] 
