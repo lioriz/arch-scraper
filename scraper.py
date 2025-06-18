@@ -7,9 +7,9 @@ import json
 import os
 from pathlib import Path
 from datetime import datetime
+import sys
 
-# Create logs and data directories if they don't exist
-os.makedirs('logs', exist_ok=True)
+# Create data directory if it doesn't exist
 os.makedirs('data', exist_ok=True)
 
 class CloudArchitectureScraper:
@@ -231,8 +231,11 @@ class CloudArchitectureScraper:
         logger.info("Scraping completed!")
 
 if __name__ == "__main__":
-    # Configure logger
-    logger.add("logs/scraper.log", rotation="1 day", retention="7 days")
+    # Configure simple stdout logger
+    logger.remove()  # Remove default handler
+    logger.add(sys.stdout, format="{time} | {file}:{line} | {level} | {message}")
     
     # Run the scraper
     asyncio.run(CloudArchitectureScraper().run()) 
+    logger.info("Process completed, exiting...")
+    

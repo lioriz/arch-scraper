@@ -89,5 +89,5 @@ To modify the scraper:
 1. Make your changes to the code
 2. Rebuild the Docker container:
 ```bash
-docker-compose up --build
+docker-compose up --build --abort-on-container-exit ; docker-compose down
 ```
