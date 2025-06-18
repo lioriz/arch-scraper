@@ -26,6 +26,23 @@ services:
     environment:
       - TZ=UTC
       - MONGODB_URI=mongodb://admin:password@mongodb:27017/arch_scraper?authSource=admin
+    # restart: unless-stopped
+    networks:
+      - arch-scraper-network
+
+  api-server:
+    build: .
+    container_name: arch-scraper-api
+    depends_on:
+      - mongodb
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=UTC
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/arch_scraper?authSource=admin
+    command: python api_server.py
     restart: unless-stopped
     networks:
       - arch-scraper-network
@@ -41,6 +58,21 @@ services:
       - TZ=UTC
       - MONGODB_URI=mongodb://admin:password@mongodb:27017/arch_scraper?authSource=admin
     command: python retrieve_data.py
+    networks:
+      - arch-scraper-network
+
+  test-api:
+    build: .
+    container_name: arch-scraper-test-api
+    depends_on:
+      - mongodb
+      - api-server
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=UTC
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/arch_scraper?authSource=admin
+    command: python test_api.py
     networks:
       - arch-scraper-network
 

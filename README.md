@@ -164,9 +164,85 @@ Logs are written to console with the format:
 
 The Docker Compose setup includes:
 - **scraper**: Python scraper service
+- **api-server**: FastAPI backend server (port 8000)
 - **retrieve-data**: Data retrieval service (runs retrieve_data.py)
+- **test-api**: API testing service (runs test_api.py)
 - **mongodb**: MongoDB 7.0 database
 - **mongodb_data**: Persistent volume for MongoDB data
+
+## API Server
+
+The FastAPI server provides REST endpoints to interact with the scraper and retrieve data.
+
+### Starting the API Server
+
+```bash
+# Start all services including API server
+docker-compose up -d
+
+# Or start just the API server and MongoDB
+docker-compose up -d mongodb api-server
+```
+
+### Available Endpoints
+
+#### **Health & Info**
+- `GET /` - API information and available endpoints
+- `GET /health` - Health check and MongoDB connection status
+- `GET /docs` - Interactive API documentation (Swagger UI)
+
+#### **Data Retrieval**
+- `GET /architectures` - Get all scraping batches with metadata
+- `GET /architectures/latest` - Get the most recent batch
+- `GET /architectures/{batch_id}` - Get specific batch by ID
+- `GET /architectures/{batch_id}/patterns` - Get only patterns from a batch
+
+#### **Scraping Control**
+- `POST /scrape` - Trigger scraping in background
+- `GET /scrape/status` - Get current scraping status
+- `GET /sources` - Get available sources for scraping
+
+### API Usage Examples
+
+#### **Get Latest Architecture Data**
+```bash
+curl http://localhost:8000/architectures/latest
+```
+
+#### **Trigger Scraping**
+```bash
+curl -X POST http://localhost:8000/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"sources": ["AWS Architecture Center"]}'
+```
+
+#### **Monitor Scraping Status**
+```bash
+curl http://localhost:8000/scrape/status
+```
+
+#### **Get Specific Batch**
+```bash
+curl http://localhost:8000/architectures/20250618_165209
+```
+
+### Testing the API
+
+Use the included test script:
+```bash
+# Test basic endpoints (locally)
+python test_api.py
+
+# Or test from Docker Compose
+# (API server and MongoDB must be running)
+docker-compose run --rm test-api
+```
+
+### API Documentation
+
+Once the API server is running, visit:
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
 ## Development
 
