@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 from datetime import datetime
 import sys
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
 
 # Create data directory if it doesn't exist
 os.makedirs('data', exist_ok=True)
@@ -17,7 +19,30 @@ class CloudArchitectureScraper:
         self.sources_file = sources_file
         self.sources = self._load_sources()
         self.architectures = []
-        
+        self.mongodb_uri = os.getenv('MONGODB_URI', 'mongodb://admin:password@localhost:27017/arch_scraper?authSource=admin')
+        self.mongo_client = None
+        self.db = None
+        self.collection = None
+        # Do not connect to MongoDB here
+
+    def _connect_mongodb(self):
+        """Connect to MongoDB database."""
+        if self.mongo_client and self.collection:
+            return  # Already connected
+        try:
+            self.mongo_client = MongoClient(self.mongodb_uri)
+            # Test the connection
+            self.mongo_client.admin.command('ping')
+            self.db = self.mongo_client.arch_scraper
+            self.collection = self.db.architectures
+            logger.info("Connected to MongoDB successfully")
+        except ConnectionFailure as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error connecting to MongoDB: {e}")
+            raise
+
     def _load_sources(self) -> List[Dict]:
         """Load sources from the sources file."""
         if not os.path.exists(self.sources_file):
@@ -42,24 +67,53 @@ class CloudArchitectureScraper:
             return json.load(f)
 
     def _save_architectures(self):
-        """Save architectures to a JSON file."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"data/architectures_{timestamp}.json"
-        
-        # Structure the data
-        output_data = {
-            "metadata": {
-                "timestamp": datetime.now().isoformat(),
-                "total_patterns": len(self.architectures),
-                "sources": [source["name"] for source in self.sources]
-            },
-            "architectures": self.architectures
-        }
-        
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(output_data, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Saved {len(self.architectures)} architecture patterns to {output_file}")
+        """Save architectures to MongoDB database."""
+        if not self.architectures:
+            logger.warning("No architectures to save")
+            return
+            
+        logger.info("Attempting to save to MongoDB...")
+        try:
+            self._connect_mongodb()
+            
+            # Create a batch document with metadata
+            batch_data = {
+                "metadata": {
+                    "timestamp": datetime.now().isoformat(),
+                    "total_patterns": len(self.architectures),
+                    "sources": [source["name"] for source in self.sources],
+                    "batch_id": datetime.now().strftime("%Y%m%d_%H%M%S")
+                },
+                "architectures": self.architectures,
+                "created_at": datetime.now()
+            }
+            
+            # Insert the batch into MongoDB
+            result = self.collection.insert_one(batch_data)
+            logger.info(f"Saved {len(self.architectures)} architecture patterns to MongoDB with batch_id: {batch_data['metadata']['batch_id']}")
+            logger.info(f"MongoDB document ID: {result.inserted_id}")
+            
+        except Exception as e:
+            logger.error(f"Error saving to MongoDB: {e}")
+            logger.warning("Falling back to JSON file saving...")
+            
+            # Fallback to JSON file
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = f"data/architectures_{timestamp}.json"
+            
+            output_data = {
+                "metadata": {
+                    "timestamp": datetime.now().isoformat(),
+                    "total_patterns": len(self.architectures),
+                    "sources": [source["name"] for source in self.sources]
+                },
+                "architectures": self.architectures
+            }
+            
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(output_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved {len(self.architectures)} architecture patterns to {output_file}")
 
     async def scrape_source(self, source: Dict, page) -> None:
         """Scrape a single source and log the results."""
@@ -211,24 +265,35 @@ class CloudArchitectureScraper:
                 if description:
                     logger.info(f"Description: {architecture['description']}\n")
 
+    def _close_mongodb(self):
+        """Close MongoDB connection."""
+        if self.mongo_client:
+            self.mongo_client.close()
+            logger.info("MongoDB connection closed")
+
     async def run(self) -> None:
         """Run the scraper for all sources."""
         logger.info("Starting cloud architecture scraping...")
         logger.info(f"Sources: {self.sources}")
         
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch()
+                page = await browser.new_page()
+                
+                for source in self.sources:
+                    logger.info(f"Source: {source}")
+                    await self.scrape_source(source, page)
+                
+                await browser.close()
             
-            for source in self.sources:
-                logger.info(f"Source: {source}")
-                await self.scrape_source(source, page)
+            # Save the collected architectures
+            self._save_architectures()
+            logger.info("Scraping completed!")
             
-            await browser.close()
-        
-        # Save the collected architectures
-        self._save_architectures()
-        logger.info("Scraping completed!")
+        finally:
+            # Close MongoDB connection
+            self._close_mongodb()
 
 if __name__ == "__main__":
     # Configure simple stdout logger

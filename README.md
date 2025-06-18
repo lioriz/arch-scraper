@@ -1,36 +1,20 @@
 # Cloud Architecture Scraper
 
-A Python-based scraper for collecting cloud architecture patterns and solutions from various sources.
+A Python-based scraper for collecting cloud architecture patterns and solutions from various sources, storing data in MongoDB.
 
 ## Features
 
 - Scrapes cloud architecture patterns from multiple sources (AWS, Azure)
+- Stores data in MongoDB with timestamps and metadata
 - Configurable source list via JSON
-- Detailed logging with rotation
+- Detailed logging with file and line numbers
 - Error handling and retry mechanisms
-- Docker support for easy deployment
+- Docker support with MongoDB container
+- Data retrieval and export capabilities
 
 ## Setup
 
-### Option 1: Local Setup
-
-1. Create a virtual environment (recommended):
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-3. Run the scraper:
-```bash
-python scraper.py
-```
-
-### Option 2: Docker Setup
+### Docker Setup
 
 1. Build and run using Docker Compose:
 ```bash
@@ -42,17 +26,81 @@ To run in detached mode:
 docker-compose up -d
 ```
 
-To stop the container:
+To stop the containers:
 ```bash
 docker-compose down
+```
+
+### Important Notes
+
+**What happens if you run `docker-compose up` multiple times without `docker-compose down` in between:**
+
+- **MongoDB**: Will show "service is already running" and continue using the existing container
+- **Scraper**: Will create a new container each time (old ones remain stopped)
+- **Retrieve-data**: Will create a new container each time (old ones remain stopped)
+- **Data persistence**: MongoDB data is preserved in the volume
+- **Port conflicts**: If you try to start services that are already running, Docker will show an error
+
+**When to use `docker-compose down`:**
+- Before running `docker-compose up` again to ensure clean state
+- To free up system resources
+- To stop all services completely
+- Before making changes to docker-compose.yml
+
+**When NOT to use `docker-compose down`:**
+- If you want to keep MongoDB running between scraper runs
+- If you're using the separate service approach (just use `docker-compose run --rm`)
+
+### Running Services Separately
+
+For better control over when each service runs:
+
+```bash
+# Start just the MongoDB database
+docker-compose up -d mongodb
+
+# Run the scraper (will exit after completion)
+docker-compose run --rm scraper
+
+# Retrieve data when needed
+docker-compose run --rm retrieve-data
+```
+
+Or run specific services only:
+```bash
+# Start only MongoDB and scraper (skip retrieve-data)
+docker-compose up --build mongodb scraper
 ```
 
 ## Usage
 
 The scraper will:
 1. Load sources from `sources.json` (created automatically if not exists)
-2. Scrape each source for cloud architecture patterns
-3. Log results to both console and `logs/scraper.log`
+2. Connect to MongoDB database
+3. Scrape each source for cloud architecture patterns
+4. Store results in MongoDB with metadata and timestamps
+5. Log results to console
+
+## Data Retrieval
+
+Use the included `retrieve_data.py` script to query the MongoDB database:
+
+### Containerized (Recommended)
+
+```bash
+# Run the retrieve-data service
+docker-compose run --rm retrieve-data
+
+# Or use the convenience script
+./retrieve.sh          # Linux/Mac
+```
+
+### Direct Docker Command
+
+```bash
+# List all scraping batches
+docker-compose exec scraper python retrieve_data.py
+```
 
 ## Configuration
 
@@ -71,23 +119,75 @@ Add or modify sources by editing the JSON file with the following structure:
 ]
 ```
 
+## MongoDB Data Structure
+
+Each scraping batch is stored as a document with the following structure:
+
+```json
+{
+  "_id": "MongoDB ObjectId",
+  "metadata": {
+    "timestamp": "ISO timestamp",
+    "total_patterns": 42,
+    "sources": ["AWS Architecture Center", "Azure Architecture Center"],
+    "batch_id": "20250618_144235"
+  },
+  "architectures": [
+    {
+      "name": "Pattern Name",
+      "type": "pattern|solution|guide|strategy",
+      "source": {
+        "name": "Source Name",
+        "type": "aws|azure",
+        "url": "https://source-url.com"
+      },
+      "description": "Pattern description",
+      "link": "https://pattern-url.com",
+      "tags": [],
+      "metadata": {
+        "scraped_at": "ISO timestamp"
+      }
+    }
+  ],
+  "created_at": "MongoDB Date"
+}
+```
+
 ## Logging
 
-Logs are written to:
-- Console output
-- `logs/scraper.log` file (rotates daily, retains for 7 days)
+Logs are written to console with the format:
+```
+{time} | {file}:{line} | {level} | {message}
+```
 
-## Docker Volumes
+## Docker Services
 
-The following directories are mounted as volumes in Docker:
-- `./logs:/app/logs` - Contains the log files
-- `./sources.json:/app/sources.json` - Contains the source configuration
+The Docker Compose setup includes:
+- **scraper**: Python scraper service
+- **retrieve-data**: Data retrieval service (runs retrieve_data.py)
+- **mongodb**: MongoDB 7.0 database
+- **mongodb_data**: Persistent volume for MongoDB data
 
 ## Development
 
 To modify the scraper:
 1. Make your changes to the code
-2. Rebuild the Docker container:
+2. Rebuild and run the scraper:
 ```bash
+# Rebuild and run scraper (database must be running)
+docker-compose up -d mongodb
+docker-compose run --rm scraper
+
+# Or rebuild and run all services
 docker-compose up --build --abort-on-container-exit ; docker-compose down
+```
+
+## Data Export
+
+To export data from MongoDB to JSON:
+```python
+from retrieve_data import export_batch_to_json, connect_mongodb
+
+client, collection = connect_mongodb()
+export_batch_to_json(collection, "20250618_144235", "my_export.json")
 ```

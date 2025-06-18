@@ -1,10 +1,52 @@
 version: '3.8'
 
 services:
+  mongodb:
+    image: mongo:7.0
+    container_name: arch-scraper-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: arch_scraper
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - arch-scraper-network
+
   scraper:
     build: .
+    container_name: arch-scraper-scraper
+    depends_on:
+      - mongodb
     volumes:
       - ./data:/app/data
     environment:
       - TZ=UTC
-    restart: unless-stopped 
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/arch_scraper?authSource=admin
+    restart: unless-stopped
+    networks:
+      - arch-scraper-network
+
+  retrieve-data:
+    build: .
+    container_name: arch-scraper-retrieve
+    depends_on:
+      - mongodb
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=UTC
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/arch_scraper?authSource=admin
+    command: python retrieve_data.py
+    networks:
+      - arch-scraper-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  arch-scraper-network:
+    driver: bridge 
