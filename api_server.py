@@ -132,7 +132,7 @@ async def run_scraper_background(sources: Optional[List[str]] = None):
         await scraper.run()
         
         # Get the latest batch
-        if collection:
+        if collection is not None:
             latest_batch = collection.find_one(sort=[("created_at", -1)])
             if latest_batch:
                 last_scraping_result = {
@@ -162,7 +162,7 @@ async def run_scraper_background(sources: Optional[List[str]] = None):
     finally:
         scraping_in_progress = False
 
-@app.get("/", response_model=Dict[str, str])
+@app.get("/")
 async def root():
     """Root endpoint with API information."""
     return {
@@ -210,39 +210,37 @@ async def get_latest_batch():
         return {"error": "MongoDB not connected"}
     try:
         latest_batch = collection.find_one(sort=[("created_at", -1)])
-        if not latest_batch:
-            return {"error": "No batches found"}
-        latest_batch["_id"] = str(latest_batch["_id"])
-        return latest_batch
     except Exception as e:
         logger.error(f"Error retrieving latest batch: {e}")
-        return {"error": f"Error retrieving latest batch: {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Error retrieving latest batch: {str(e)}")
+    if not latest_batch:
+        raise HTTPException(status_code=404, detail="No batches found")
+    latest_batch["_id"] = str(latest_batch["_id"])
+    return latest_batch
 
 @app.get("/architectures/{batch_id}", response_model=BatchResponse)
 async def get_batch_by_id(batch_id: str):
     """Retrieve a specific batch by batch_id."""
-    if not collection:
+    if collection is None:
         raise HTTPException(status_code=500, detail="MongoDB not connected")
     
     try:
         batch = collection.find_one({"metadata.batch_id": batch_id})
-        if not batch:
-            raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
-        
-        # Convert ObjectId to string for JSON serialization
-        batch["_id"] = str(batch["_id"])
-        
-        return batch
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error retrieving batch {batch_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error retrieving batch: {str(e)}")
+    if not batch:
+        raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
+    
+    # Convert ObjectId to string for JSON serialization
+    batch["_id"] = str(batch["_id"])
+    
+    return batch
 
-@app.get("/architectures/{batch_id}/patterns", response_model=List[ArchitecturePattern])
+@app.get("/architectures/{batch_id}/patterns")
 async def get_patterns_by_batch_id(batch_id: str):
     """Retrieve only the architecture patterns from a specific batch."""
-    if not collection:
+    if collection is None:
         raise HTTPException(status_code=500, detail="MongoDB not connected")
     
     try:
@@ -251,11 +249,9 @@ async def get_patterns_by_batch_id(batch_id: str):
             raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
         
         return batch["architectures"]
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error retrieving patterns for batch {batch_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving patterns: {str(e)}")
+        return {"error": f"Error retrieving patterns: {str(e)}"}
 
 @app.post("/scrape", response_model=ScrapingStatus)
 async def trigger_scraping(request: ScrapingRequest, background_tasks: BackgroundTasks):
