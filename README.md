@@ -12,6 +12,16 @@ A Python-based scraper for collecting cloud architecture patterns and solutions 
 - Docker support with MongoDB container
 - Data retrieval and export capabilities
 
+## Docker Images and Playwright
+
+- The Dockerfile uses multi-stage builds. Each service (scraper, api-server, retrieve-data, test-api) uses a specific build target.
+- **Only the scraper service installs Playwright and its dependencies.** This keeps the other images smaller and faster to build.
+- If you need to add browser scraping to another service, add the Playwright install steps to that build stage.
+
+## Docker Compose Build Targets
+
+Each service in `docker-compose.yml` specifies its build target, so you can build and run them independently and efficiently.
+
 ## Setup
 
 ### Docker Setup

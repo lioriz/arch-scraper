@@ -17,7 +17,9 @@ services:
       - arch-scraper-network
 
   scraper:
-    build: .
+    build:
+      context: .
+      target: scraper
     container_name: arch-scraper-scraper
     depends_on:
       - mongodb
@@ -26,12 +28,13 @@ services:
     environment:
       - TZ=UTC
       - MONGODB_URI=mongodb://admin:password@mongodb:27017/arch_scraper?authSource=admin
-    # restart: unless-stopped
     networks:
       - arch-scraper-network
 
   api-server:
-    build: .
+    build:
+      context: .
+      target: api-server
     container_name: arch-scraper-api
     depends_on:
       - mongodb
@@ -48,7 +51,9 @@ services:
       - arch-scraper-network
 
   retrieve-data:
-    build: .
+    build:
+      context: .
+      target: retrieve-data
     container_name: arch-scraper-retrieve
     depends_on:
       - mongodb
@@ -62,7 +67,9 @@ services:
       - arch-scraper-network
 
   test-api:
-    build: .
+    build:
+      context: .
+      target: test-api
     container_name: arch-scraper-test-api
     depends_on:
       - mongodb
