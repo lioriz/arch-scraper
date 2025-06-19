@@ -10,9 +10,15 @@ from datetime import datetime
 import sys
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
+import openai
+from dotenv import load_dotenv
 
 # Create data directory if it doesn't exist
 os.makedirs('data', exist_ok=True)
+
+# Load .env file for OpenAI API key
+load_dotenv()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 class CloudArchitectureScraper:
     def __init__(self, sources_file: str = "sources.json"):
@@ -67,81 +73,51 @@ class CloudArchitectureScraper:
             return json.load(f)
 
     def _save_architectures(self):
-        """Save architectures to MongoDB database."""
-        if not self.architectures:
-            logger.warning("No architectures to save")
-            return
-            
-        logger.info("Attempting to save to MongoDB...")
-        try:
-            self._connect_mongodb()
-            
-            # Create a batch document with metadata
-            batch_data = {
-                "metadata": {
-                    "timestamp": datetime.now().isoformat(),
-                    "total_patterns": len(self.architectures),
-                    "sources": [source["name"] for source in self.sources],
-                    "batch_id": datetime.now().strftime("%Y%m%d_%H%M%S")
-                },
-                "architectures": self.architectures,
-                "created_at": datetime.now()
-            }
-            
-            # Insert the batch into MongoDB
-            result = self.collection.insert_one(batch_data)
-            logger.info(f"Saved {len(self.architectures)} architecture patterns to MongoDB with batch_id: {batch_data['metadata']['batch_id']}")
-            logger.info(f"MongoDB document ID: {result.inserted_id}")
-            
-        except Exception as e:
-            logger.error(f"Error saving to MongoDB: {e}")
-            logger.warning("Falling back to JSON file saving...")
-            
-            # Fallback to JSON file
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"data/architectures_{timestamp}.json"
-            
-            output_data = {
-                "metadata": {
-                    "timestamp": datetime.now().isoformat(),
-                    "total_patterns": len(self.architectures),
-                    "sources": [source["name"] for source in self.sources]
-                },
-                "architectures": self.architectures
-            }
-            
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(output_data, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Saved {len(self.architectures)} architecture patterns to {output_file}")
+        # No batch saving, handled per-architecture in scrape_source
+        pass
 
     async def scrape_source(self, source: Dict, page) -> None:
-        """Scrape a single source and log the results."""
         try:
             logger.info(f"Scraping {source['name']} from {source['url']}")
             await page.goto(source['url'], wait_until='networkidle')
-            
-            # Wait for content to load with increased timeout
             await page.wait_for_load_state('domcontentloaded')
-            await page.wait_for_timeout(5000)  # Additional wait for dynamic content
-            
-            # Get the page content
+            await page.wait_for_timeout(5000)
             content = await page.content()
             soup = BeautifulSoup(content, 'html.parser')
-            
-            # Log the page title for debugging
-            title = soup.find('title')
-            if title:
-                logger.info(f"Page title: {title.text.strip()}")
-            
-            # Basic scraping - this will need to be customized per source
-            if source['type'] == 'aws':
-                await self._scrape_aws(soup, source)
-            elif source['type'] == 'azure':
-                await self._scrape_azure(soup, source)
-            else:
-                logger.warning(f"Unknown source type: {source['type']}")
-                
+
+            # Find all architecture links (adjust selector as needed)
+            arch_links = []
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if "architecture" in href and href.startswith("http"):
+                    arch_links.append(href)
+                elif "architecture" in href:
+                    from urllib.parse import urljoin
+                    arch_links.append(urljoin(source["url"], href))
+
+            logger.info(f"Found {len(arch_links)} architecture links.")
+
+            for arch_url in arch_links:
+                try:
+                    await page.goto(arch_url, wait_until='networkidle')
+                    await page.wait_for_load_state('domcontentloaded')
+                    await page.wait_for_timeout(3000)
+                    arch_content = await page.content()
+                    arch_soup = BeautifulSoup(arch_content, 'html.parser')
+                    for tag in arch_soup(["script", "style", "nav", "footer", "header", "aside"]):
+                        tag.decompose()
+                    main_content = arch_soup.get_text(separator="\n", strip=True)
+                    arch_data = extract_architecture_with_openai(main_content, arch_url, source['name'])
+                    if arch_data:
+                        if 'timestamp' not in arch_data:
+                            from datetime import datetime
+                            arch_data['timestamp'] = datetime.utcnow().isoformat() + 'Z'
+                        self.collection.insert_one(arch_data)
+                        logger.info(f"Inserted architecture: {arch_data.get('title', 'N/A')} from {arch_url}")
+                    else:
+                        logger.error(f"OpenAI extraction failed for {arch_url}")
+                except Exception as e:
+                    logger.error(f"Error scraping architecture page {arch_url}: {str(e)}")
         except Exception as e:
             logger.error(f"Error scraping {source['name']}: {str(e)}")
 
@@ -294,6 +270,37 @@ class CloudArchitectureScraper:
         finally:
             # Close MongoDB connection
             self._close_mongodb()
+
+def extract_architecture_with_openai(raw_html, url, provider):
+    prompt = f"""
+    Extract a cloud architecture from the following HTML/text and return a JSON object in this format:
+    {{
+      "title": "...",
+      "description": "...",
+      "provider": "{provider}",
+      "scraped_from_url": "{url}",
+      "timestamp": "<current UTC ISO timestamp>",
+      "tags": [...],
+      "resources": [...],
+      "relationships": [...]
+    }}
+    Only include fields you can infer. If a field is missing, leave it out.
+    If the provided HTML/text is not a cloud architecture, return None.
+    HTML/text:
+    {raw_html}
+    """
+    client = openai.OpenAI()  # Uses OPENAI_API_KEY from env
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.2,
+        max_tokens=1500,
+    )
+    content = response.choices[0].message.content
+    try:
+        return json.loads(content)
+    except Exception:
+        return None
 
 if __name__ == "__main__":
     # Configure simple stdout logger
