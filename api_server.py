@@ -245,13 +245,13 @@ async def get_patterns_by_batch_id(batch_id: str):
     
     try:
         batch = collection.find_one({"metadata.batch_id": batch_id}, {"architectures": 1})
-        if not batch:
-            raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
-        
-        return batch["architectures"]
     except Exception as e:
         logger.error(f"Error retrieving patterns for batch {batch_id}: {e}")
-        return {"error": f"Error retrieving patterns: {str(e)}"}
+        raise HTTPException(status_code=500,  detail=f"Error retrieving patterns: {str(e)}")
+    if not batch:
+        raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
+    
+    return batch["architectures"]
 
 @app.post("/scrape", response_model=ScrapingStatus)
 async def trigger_scraping(request: ScrapingRequest, background_tasks: BackgroundTasks):
