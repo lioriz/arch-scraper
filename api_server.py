@@ -255,7 +255,7 @@ async def get_patterns_by_batch_id(batch_id: str):
 
 @app.post("/scrape", response_model=ScrapingStatus)
 async def trigger_scraping(request: ScrapingRequest, background_tasks: BackgroundTasks):
-    """Trigger scraping in the background."""
+    """Trigger scraping in the background, enter empty list to scrape all sources: {} or {"sources": []}"""
     global scraping_in_progress
     
     if scraping_in_progress:
